@@ -1,0 +1,4 @@
+angular-promise-cache
+=====================
+
+

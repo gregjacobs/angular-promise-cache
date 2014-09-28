@@ -1,0 +1,17 @@
+{
+	"undef": true,
+	"smarttabs": true,
+	"browser": true,
+	"predef": [
+		"angular",
+		"module",
+		"inject",
+		
+		"jasmine",
+		"beforeEach",
+		"afterEach",
+		"describe",
+		"it",
+		"expect"
+	]
+}
