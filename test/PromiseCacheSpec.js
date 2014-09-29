@@ -353,6 +353,13 @@ describe( 'PromiseCache', function() {
 		} );
 		
 		
+		it( 'should have no effect on an empty PromiseCache', function() {
+			expect( function() {
+				promiseCache.prune();
+			} ).not.toThrow();
+		} );
+		
+		
 		it( 'should not remove any cache entries if none are expired', function() {
 			var promise0 = promiseCache.get( '1', setterFn );
 			var promise1 = promiseCache.get( '2', setterFn );
@@ -385,6 +392,115 @@ describe( 'PromiseCache', function() {
 			expect( promiseCache.cache[ '2' ] ).toBeUndefined();
 			expect( promiseCache.cache[ '3' ] ).not.toBeUndefined();
 			expect( promiseCache.cache[ '4' ] ).not.toBeUndefined();
+		} );
+		
+	} );
+	
+	
+	describe( 'automatic pruning of old entries on the `pruneInterval`', function() {
+		var promiseCache;
+		
+		beforeEach( function() {
+			jasmine.Clock.useMock();
+			
+			spyOn( window, 'setInterval' ).andCallThrough();
+			spyOn( window, 'clearInterval' ).andCallThrough();
+			
+			spyOn( Date.prototype, 'getTime' ).andReturn( 0 );  // for testing the pruning on the maxAge
+		} );
+		
+		
+		afterEach( function() {
+			if( promiseCache ) promiseCache.destroy();
+			
+			// Make sure there are always an equal number of setInterval and clearInterval calls.
+			// Not perfect since clearInterval() can be called with a wrong interval ID, but should
+			// catch problems if there are any.
+			expect( window.setInterval.calls.length ).toBe( window.clearInterval.calls.length );
+		} );
+		
+		
+		it( 'should not start a prune interval for an empty cache', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			
+			expect( window.setInterval ).not.toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should not start a prune interval if no `maxAge` is set', function() {
+			promiseCache = new PromiseCache( { maxAge: null, pruneInterval: 1000 } );
+			promiseCache.get( '1', setterFn );
+			
+			expect( window.setInterval ).not.toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should not start a prune interval if `pruneInterval` is set to `null`', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: null } );
+			promiseCache.get( '1', setterFn );
+			
+			expect( window.setInterval ).not.toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should start a prune interval when there is a `maxAge` and a `pruneInterval`, and an item is added to the cache', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1', setterFn );
+			
+			expect( window.setInterval ).toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should stop the prune interval when all entries in the cache are removed', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1', setterFn );
+			promiseCache.get( '2', setterFn );
+			
+			expect( window.setInterval ).toHaveBeenCalled();
+			expect( window.clearInterval ).not.toHaveBeenCalled();
+			
+			promiseCache.remove( '1', setterFn );
+			expect( window.clearInterval ).not.toHaveBeenCalled();
+			
+			promiseCache.remove( '2', setterFn );
+			expect( window.clearInterval ).toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should stop the prune interval when the PromiseCache is cleared', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1', setterFn );
+			promiseCache.get( '2', setterFn );
+			expect( window.setInterval ).toHaveBeenCalled();        // initial condition
+			expect( window.clearInterval ).not.toHaveBeenCalled();  // initial condition
+			
+			promiseCache.clear();
+			expect( window.clearInterval ).toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should stop the prune interval when the PromiseCache is destroyed', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1', setterFn );
+			promiseCache.get( '2', setterFn );
+			expect( window.setInterval ).toHaveBeenCalled();        // initial condition
+			expect( window.clearInterval ).not.toHaveBeenCalled();  // initial condition
+			
+			promiseCache.destroy();
+			expect( window.clearInterval ).toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should prune the cache (removing old entries) on the interval', function() {
+			promiseCache = new PromiseCache( { maxAge: 500, pruneInterval: 1000 } );
+			
+			Date.prototype.getTime.andReturn( 0 );  // just to be clear
+			promiseCache.get( '1', setterFn );
+			expect( promiseCache.has( '1' ) ).toBe( true );
+			
+			jasmine.Clock.tick( 1000 );
+			Date.prototype.getTime.andReturn( 1000 );
+			expect( promiseCache.has( '1' ) ).toBe( false );
 		} );
 		
 	} );

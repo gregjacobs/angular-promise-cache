@@ -18,10 +18,21 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 	 * be cached once it has been returned, this implementation optimizes network requests by caching the Promise itself,
 	 * making sure only one network request has been made.
 	 * 
+	 * 
 	 * ## Promise Rejection
 	 * 
 	 * If a Promise is rejected, it is removed from the cache. This is to allow a new call for the data to re-request
 	 * the original source data.
+	 * 
+	 * 
+	 * ## Destroying the Cache
+	 * 
+	 * If the cache is no longer to be in use, the {@link #destroy} method must be executed to clear up references and 
+	 * remove the {@link #maxAge} {@link #pruneInterval prune} interval.
+	 * 
+	 * Most often, a PromiseCache will be used within a singleton service that lasts the lifetime of an app and therefore 
+	 * will not need to be cleaned up, but there are cases for manually destroying a PromiseCache.
+	 * 
 	 * 
 	 * ## Example
 	 * 
@@ -44,9 +55,6 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 	 */
 	function PromiseCache( cfg ) {
 		angular.extend( this, cfg );
-		
-		this.cache = null;  // will lazily instantiate it when an entry is added
-		this.size = 0;
 	}
 	
 	
@@ -62,6 +70,44 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		 * Defaults to `null`, for no maxAge.
 		 */
 		maxAge : null,
+		
+		/**
+		 * @cfg {Number} pruneInterval
+		 * 
+		 * A number, in milliseconds, of how often to prune the cache (i.e. remove expired entries). This only applies when
+		 * a {@link #maxAge} has been specified.
+		 * 
+		 * Set to `null` for no automatic pruning. Old cache entries will remain, unless {@link #prune} is manually called.
+		 */
+		pruneInterval : 60 * 1000,  // 60 sec
+		
+		
+		/**
+		 * @private
+		 * @property {Object} cache
+		 * 
+		 * The internal Object (map) of cache keys to {@link PromiseCache.CacheEntry CacheEntries}. This is lazily created
+		 * when a promise is added to the cache.
+		 */
+		cache : null,
+		
+		/**
+		 * @private
+		 * @property {Number} size
+		 * 
+		 * Maintains the number of entries currently in the cache, including expired entires. Must retrieve with 
+		 * {@link #getSize} for an accurate count of unexpired entries.
+		 */
+		size : 0,
+		
+		/**
+		 * @private
+		 * @property {Number} pruningIntervalId
+		 * 
+		 * The ID returned from `setInterval()`, which is used to remove the interval when the PromiseCache is either
+		 * {@link #destroyed} or all entries have been removed from it.
+		 */
+		pruningIntervalId : null,
 		
 		
 		/**
@@ -98,7 +144,8 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		
 		
 		/**
-		 * Utility method to add a cache entry.
+		 * Utility method to add a cache entry, which is called from {@link #get} when there is a cache miss, and a
+		 * promise is to be set into the cache.
 		 * 
 		 * @private
 		 * @param {String} key The key store the promise under.
@@ -113,6 +160,8 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			if( promise && typeof promise.then === 'function' ) {  // a little duck typing to determine if the object returned from `setter()` is a promise
 				cacheEntry = this.cache[ key ] = new CacheEntry( promise );
 				this.size++;
+				
+				this.startPruningInterval();  // starts the pruning interval if it's not already running
 			} else {
 				throw new Error( '`setter` function must return a Promise object' );
 			}
@@ -134,7 +183,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		 * @return {Number} The number of entries that are currently in the cache.
 		 */
 		getSize : function() {
-			this.prune();
+			this.prune();  // we must remove expired entries in order to retrieve an accurate count
 			
 			return this.size;
 		},
@@ -165,7 +214,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			if( !cache ) return false;
 			
 			if( cache[ key ] ) {
-				if( this.size === 1 ) {  // removing the last entry, simply clear out the cache (set to `null`)
+				if( this.size === 1 ) {  // removing the last entry, simply clear out the cache (set to `null`), and stop the pruning interval
 					this.clear();
 					
 				} else {
@@ -221,6 +270,8 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		clear : function() {
 			this.cache = null;
 			this.size = 0;
+			
+			this.stopPruningInterval();
 		},
 		
 		
@@ -230,6 +281,10 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		
 		/**
 		 * Prunes the cache, removing expired entries (based on {@link #maxAge}).
+		 * 
+		 * Normally, you do not need to call this as it will be done on an interval (see {@link #pruneInterval}). However,
+		 * it may be desirable to call it at certain points in time, especially if the {@link #pruneInterval} is set to
+		 * a long time.
 		 */
 		prune : function() {
 			var cache = this.cache;
@@ -242,6 +297,54 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 					this.remove( key );
 				}
 			}
+		},
+		
+		
+		/**
+		 * Starts the pruning interval, which runs every {@link #pruneInterval} milliseconds to remove old (i.e. expired)
+		 * entries from the cache.
+		 * 
+		 * The interval is only active when there are entries in the cache, and there is actually a {@link #maxAge} set (meaning
+		 * that entries may expire).
+		 * 
+		 * @private
+		 */
+		startPruningInterval : function() {
+			// If already running the pruning interval, do nothing
+			if( this.pruningIntervalId ) return;
+			
+			var pruneInterval = this.pruneInterval;
+			if( pruneInterval == null ) return;  // don't set up the prune interval if the user doesn't want one
+			if( this.maxAge == null ) return;    // no need for pruning if entries don't expire
+			
+			var prune = angular.bind( this, this.prune );
+			this.pruningIntervalId = setInterval( prune, pruneInterval );  // note: not using $interval here since there is no reason to run a $digest() when expired entries are removed from the cache
+		},
+		
+		
+		/**
+		 * Stops the prune interval started in {@link #startPruningInterval}.
+		 * 
+		 * @private
+		 */
+		stopPruningInterval : function() {
+			if( this.pruningIntervalId ) {
+				clearInterval( this.pruningIntervalId );
+				
+				this.pruningIntervalId = null;
+			}
+		},
+		
+		
+		// -----------------------------------
+		
+		
+		/**
+		 * Destroys the PromiseCache by removing the cache references, and removing the prune interval.
+		 */
+		destroy : function() {
+			this.stopPruningInterval();
+			this.cache = null;
 		}
 		
 	};
