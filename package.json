@@ -2,6 +2,12 @@
   "version": "0.1.0",
   "private": true,
   "name": "angular-promise-cache",
+  "author": "Gregory Jacobs <greg@greg-jacobs.com>",
+  "license": "MIT Licensed. http://www.opensource.org/licenses/mit-license.php",
+  "bugs": {
+    "url": "https://github.com/gregjacobs/angular-promise-cache/issues"
+  },
+  "homepage": "https://github.com/gregjacobs/angular-promise-cache",
   "description": "Cache for Angular promises, which automatically remove themselves from the cache if they fail.",
   "repository": "https://github.com/gregjacobs/angular-promise-cache",
   "license": "MIT",

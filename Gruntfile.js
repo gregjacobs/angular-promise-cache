@@ -20,6 +20,9 @@ module.exports = function( grunt ) {
 		
 		jshint : {
 			files : {
+				options : {
+					jshintrc : true
+				},
 				src : [ 'src/**/*.js', 'tests/**/*.js' ]
 			}
 		},
