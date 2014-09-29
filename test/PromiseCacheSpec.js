@@ -118,6 +118,45 @@ describe( 'PromiseCache', function() {
 			expect( promise0 ).not.toBe( promise1 );
 		} );
 		
+		
+		describe( 'maxAge handling', function() {
+			
+			beforeEach( function() {
+				// Need to spy on the Date object to implement this functionality
+				spyOn( Date.prototype, 'getTime' ).andReturn( 0 );
+				
+				promiseCache = new PromiseCache( { maxAge: 1000 } );  // 1 second
+			} );
+			
+			
+			it( 'should return the cache entry if the entry has not yet expired', function() {
+				var promise0 = promiseCache.get( '1', setterFn );
+				expect( setterFn.calls.length ).toBe( 1 );
+				
+				Date.prototype.getTime.andReturn( 1000 );  // maxAge is inclusive, so should still receive the cached promise
+				var promise1 = promiseCache.get( '1', setterFn );
+				expect( setterFn.calls.length ).toBe( 1 );
+				expect( promise0 ).toBe( promise1 );
+			} );
+			
+			
+			it( 'should call the `setter` to create a new cache entry if the maxAge has elapsed', function() {
+				var promise0 = promiseCache.get( '1', setterFn );
+				expect( setterFn.calls.length ).toBe( 1 );
+				
+				Date.prototype.getTime.andReturn( 1001 );
+				var promise1 = promiseCache.get( '1', setterFn );
+				expect( setterFn.calls.length ).toBe( 2 );
+				expect( promise0 ).not.toBe( promise1 );
+				
+				// Test that subsequent calls get the 2nd promise (promise1)
+				var promise2 = promiseCache.get( '1', setterFn );
+				expect( setterFn.calls.length ).toBe( 2 );
+				expect( promise1 ).toBe( promise2 );
+			} );
+			
+		} );
+		
 	} );
 	
 } );

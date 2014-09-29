@@ -12,6 +12,7 @@
 		"afterEach",
 		"describe",
 		"it",
-		"expect"
+		"expect",
+		"spyOn"
 	]
 }

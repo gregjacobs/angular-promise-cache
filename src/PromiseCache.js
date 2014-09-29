@@ -78,13 +78,17 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			}
 			
 			var me = this,  // for closure
-			    promise = this.cache[ key ];
+			    cacheEntry = this.cache[ key ],
+			    promise;
 			
-			if( !promise ) {
+			if( cacheEntry && !this.isExpired( cacheEntry ) ) {
+				promise = cacheEntry.getPromise();
+				
+			} else {  // not yet in the cache (or the entry expired), run the `setter`
 				promise = setter();
 				
 				if( promise && typeof promise.then === 'function' ) {  // a little duck typing to determine if the object returned from `setter()` is a promise
-					this.cache[ key ] = promise;
+					cacheEntry = this.cache[ key ] = new CacheEntry( promise );
 				} else {
 					throw new Error( '`setter` function must return a Promise object' );
 				}
@@ -94,6 +98,58 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			}
 			
 			return promise;
+		},
+		
+		
+		/**
+		 * Determines if a cache entry is expired, based on the `cacheEntry`'s insertion time, and the {@link #maxAge} config.
+		 * 
+		 * @param {PromiseCache.CacheEntry} cacheEntry
+		 * @return {Boolean} `true` if the cache entry is expired, `false` otherwise.
+		 */
+		isExpired : function( cacheEntry ) {
+			var now = (new Date()).getTime();
+			
+			return ( now > cacheEntry.getEntryTime() + this.maxAge );
+		}
+		
+	};
+	
+	
+	/**
+	 * @private
+	 * @class PromiseCache.CacheEntry
+	 * 
+	 * Represents an entry in the cache.
+	 * 
+	 * @constructor
+	 * @param {Q.promise} promise The promise that the cache entry is to hold.
+	 */
+	function CacheEntry( promise ) {
+		this.promise = promise;
+		this.entryTime = (new Date()).getTime();
+	}
+	
+	CacheEntry.prototype = {
+		constructor : CacheEntry,
+		
+		/**
+		 * Returns the promise object for this CacheEntry.
+		 * 
+		 * @return {Q.promise}
+		 */
+		getPromise : function() {
+			return this.promise;
+		},
+		
+		
+		/**
+		 * Returns the time that the cache entry was added, in milliseconds from the unix epoch.
+		 * 
+		 * @return {Number}
+		 */
+		getEntryTime : function() {
+			return this.entryTime;
 		}
 		
 	};
