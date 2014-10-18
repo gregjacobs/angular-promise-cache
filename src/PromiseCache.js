@@ -58,9 +58,15 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 	}
 	
 	
-	PromiseCache.prototype = {
-		constructor : PromiseCache,
+	angular.extend( PromiseCache.prototype, {
 		
+		/**
+		 * @cfg {Number} maxSize
+		 * 
+		 * The maximum size for the cache. If this size is reached, entries will be removed on a LRU (least recently used)
+		 * basis.
+		 */
+		maxSize : null,
 		
 		/**
 		 * @cfg {Number} maxAge
@@ -109,6 +115,22 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		 */
 		pruningIntervalId : null,
 		
+		/**
+		 * @private
+		 * @property {PromiseCache.CacheEntry} lru
+		 * 
+		 * A reference to the least recently used cache entry.
+		 */
+		lru : null,
+		
+		/**
+		 * @private
+		 * @property {PromiseCache.CacheEntry} mru
+		 * 
+		 * A reference to the most recently used cache entry.
+		 */
+		mru : null,
+		
 		
 		/**
 		 * Retrieves a Promise from the cache by the given `key`, adding it to the cache if `key` does not yet exist.
@@ -135,6 +157,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			
 			if( cacheEntry && !this.isExpired( cacheEntry ) ) {
 				promise = cacheEntry.getPromise();
+				this.moveToEndOfLruList( cacheEntry );
 			} else {
 				promise = this.addEntry( key, setter );  // not yet in the cache (or the cached entry is expired), add the new entry
 			}
@@ -158,10 +181,16 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			    cacheEntry;
 			
 			if( promise && typeof promise.then === 'function' ) {  // a little duck typing to determine if the object returned from `setter()` is a promise
-				cacheEntry = this.cache[ key ] = new CacheEntry( promise );
+				cacheEntry = this.cache[ key ] = new CacheEntry( key, promise );
+				this.addToLruList( cacheEntry );
 				this.size++;
 				
 				this.startPruningInterval();  // starts the pruning interval if it's not already running
+				
+				// If the addition exceeds the maxSize, removed the least recently used entry
+				if( this.maxSize !== null && this.size > this.maxSize ) {
+					this.remove( this.lru.getKey() );
+				}
 			} else {
 				throw new Error( '`setter` function must return a Promise object' );
 			}
@@ -213,13 +242,15 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			var cache = this.cache;
 			if( !cache ) return false;
 			
-			if( cache[ key ] ) {
+			var cacheEntry = cache[ key ];
+			if( cacheEntry ) {
 				if( this.size === 1 ) {  // removing the last entry, simply clear out the cache (set to `null`), and stop the pruning interval
 					this.clear();
 					
 				} else {
-					delete cache[ key ];
 					this.size--;
+					this.removeFromLruList( cacheEntry );
+					delete cache[ key ];
 				}
 			}
 		},
@@ -270,8 +301,72 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 		clear : function() {
 			this.cache = null;
 			this.size = 0;
+			this.lru = this.mru = null;
 			
 			this.stopPruningInterval();
+		},
+		
+		
+		// -----------------------------------
+		
+		// LRU Functionality
+		
+		
+		/**
+		 * @private
+		 */
+		addToLruList : function( cacheEntry ) {
+			if( !this.lru ) {
+				this.lru = this.mru = cacheEntry;
+				
+			} else {
+				this.mru.next = cacheEntry;
+				cacheEntry.prev = this.mru;
+				this.mru = cacheEntry;
+			}
+		},
+		
+		
+		/**
+		 * @private
+		 */
+		removeFromLruList : function( cacheEntry ) {
+			var next = cacheEntry.next,
+			    prev = cacheEntry.prev;
+			
+			if( next ) next.prev = prev;
+			if( prev ) prev.next = next;
+			
+			if( cacheEntry === this.mru ) this.mru = prev;
+			if( cacheEntry === this.lru ) this.lru = next;
+			
+			cacheEntry.prev = cacheEntry.next = null;  // remove references to clean up memory and in case this same entry is to be re-inserted
+		},
+		
+		
+		/**
+		 * @private
+		 */
+		moveToEndOfLruList : function( cacheEntry ) {
+			this.removeFromLruList( cacheEntry );
+			this.addToLruList( cacheEntry );
+		},
+		
+		
+		/**
+		 * @protected
+		 * @return {PromiseCache.CacheEntry[]} Returns the cache entries in least recently used (LRU) order. That is,
+		 *   the LRU entry is the beginning of the array, and the most recently used (MRU) entry is the end.
+		 */
+		getLruList : function() {
+			var lruEntry = this.lru,
+			    result = [];
+			
+			while( lruEntry ) {
+				result.push( lruEntry );
+				lruEntry = lruEntry.next;
+			}
+			return result;
 		},
 		
 		
@@ -347,7 +442,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			this.cache = null;
 		}
 		
-	};
+	} );
 	
 	
 	/**
@@ -357,21 +452,70 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 	 * Represents an entry in the cache.
 	 * 
 	 * @constructor
-	 * @param {Q.promise} promise The promise that the cache entry is to hold.
+	 * @param {String} key The key that the CacheEntry is stored under.
+	 * @param {Q.Promise} promise The promise that the cache entry is to hold.
 	 */
-	function CacheEntry( promise ) {
+	function CacheEntry( key, promise ) {
+		this.key = key;
 		this.promise = promise;
 		this.entryTime = (new Date()).getTime();
+		this.next = null;
+		this.prev = null;
 	}
 	
 	
-	CacheEntry.prototype = {
-		constructor : CacheEntry,
+	angular.extend( CacheEntry.prototype, {
 		
 		/**
-		 * Returns the promise object for this CacheEntry.
+		 * @private
+		 * @property {String} key
 		 * 
-		 * @return {Q.promise}
+		 * The key that the CacheEntry is stored under.
+		 */
+		
+		/**
+		 * @private
+		 * @property {Q.Promise} promise
+		 * 
+		 * The Promise that is stored in this cache entry.
+		 */
+		
+		/**
+		 * @private
+		 * @property {Number} entryTime
+		 * 
+		 * The time that this entry was added to the cache as the number of milliseconds since 1/1/1970.
+		 */
+		
+		/**
+		 * @private
+		 * @property {PromiseCache.CacheEntry} next
+		 * 
+		 * The next entry in the doubly-linked list that CacheEntries form in order to implement the LRU functionality.
+		 */
+		
+		/**
+		 * @private
+		 * @property {PromiseCache.CacheEntry} prev
+		 * 
+		 * The previous entry in the doubly-linked list that CacheEntries form in order to implement the LRU functionality.
+		 */
+		
+		
+		/**
+		 * Returns the {@link #key} for this CacheEntry.
+		 * 
+		 * @return {String}
+		 */
+		getKey : function() {
+			return this.key;
+		},
+		
+		
+		/**
+		 * Returns the {@link #promise} object for this CacheEntry.
+		 * 
+		 * @return {Q.Promise}
 		 */
 		getPromise : function() {
 			return this.promise;
@@ -387,7 +531,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', function(
 			return this.entryTime;
 		}
 		
-	};
+	} );
 	
 	
 	return PromiseCache;

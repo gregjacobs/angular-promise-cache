@@ -159,6 +159,167 @@ describe( 'PromiseCache', function() {
 		} );
 		
 		
+		describe( 'maxSize handling (LRU functionality)', function() {
+			
+			beforeEach( function() {
+				promiseCache = new PromiseCache( { maxSize: 3 } );
+			} );
+			
+			
+			/*
+			 * @param {String} key A key to put into the cache.
+			 */
+			function putKey( key ) {
+				promiseCache.get( key, setterFn );
+			}
+			
+			/*
+			 * Basically the same as putKey, but illustrates that the key is being retrieved
+			 * 
+			 * @param {String} key A key to put into the cache.
+			 */
+			function getKey( key ) {
+				if( !promiseCache.has( key ) ) throw new Error( "The key `" + key + "` was not in the cache" );
+				
+				promiseCache.get( key, setterFn );
+			}
+			
+			/*
+			 * @param {String} key The key to remove from the cache.
+			 */
+			function removeKey( key ) {
+				promiseCache.remove( key );
+			}
+			
+			/*
+			 * @param {String[]} keys The keys to expect in the cache.
+			 */
+			function expectLruList( keys ) {
+				expect( promiseCache.getSize() ).toBe( keys.length );
+				
+				var lruList = promiseCache.getLruList();
+				expect( getKeys( lruList ) ).toEqual( keys );
+				
+				expectLruToBe( keys[ 0 ] || null );
+				expectMruToBe( keys[ keys.length - 1 ] || null );
+				
+				// Check that each key actually exists in the cache's map
+				keys.forEach( function( key ) { 
+					if( !promiseCache.has( key ) )  // so we can give a better error message than "expected false to be true"
+						expect( key ).toBe( "found in the cache" );
+				} );
+			}
+			
+			function getKeys( cacheEntries ) {
+				return cacheEntries.map( function( entry ) { return entry.getKey(); } );
+			}
+			
+			function expectMruToBe( key ) {
+				if( key === null ) {
+					expect( promiseCache.mru ).toBe( null );
+				} else {
+					expect( promiseCache.mru.getKey() ).toBe( key );
+				}
+			}
+			
+			function expectLruToBe( key ) {
+				if( key === null ) {
+					expect( promiseCache.lru ).toBe( null );
+				} else {
+					expect( promiseCache.lru.getKey() ).toBe( key );
+				}
+			}
+			
+			
+			it( 'should remove entries on a least-recently-used (LRU) basis as entries are added', function() {
+				putKey( '1' );
+				putKey( '2' );
+				putKey( '3' );
+				expectLruList( [ '1', '2', '3' ] );
+				
+				putKey( '4' );
+				expectLruList( [ '2', '3', '4' ] );
+				
+				putKey( '5' );
+				expectLruList( [ '3', '4', '5' ] );
+			} );
+			
+			
+			it( 'retrieving a cache entry should move the entry to the end of the LRU list', function() {
+				putKey( '1' );
+				putKey( '2' );
+				putKey( '3' );
+				expectLruList( [ '1', '2', '3' ] );
+				
+				getKey( '2' );
+				expectLruList( [ '1', '3', '2' ] );
+				
+				getKey( '2' );
+				expectLruList( [ '1', '3', '2' ] );  // 2 stays at the MRU position
+				
+				getKey( '1' );
+				expectLruList( [ '3', '2', '1' ] );
+				
+				getKey( '1' );
+				expectLruList( [ '3', '2', '1' ] );  // 1 stays at the MRU position
+				
+				getKey( '3' );
+				expectLruList( [ '2', '1', '3' ] );
+			} );
+			
+			
+			it( 'manually removing an entry should remove the entry properly from the beginning of the LRU list', function() {
+				putKey( '1' );
+				putKey( '2' );
+				putKey( '3' );
+				expectLruList( [ '1', '2', '3' ] );
+				
+				removeKey( '1' );
+				expectLruList( [ '2', '3' ] );
+			} );
+			
+			
+			it( 'manually removing an entry should remove the entry properly from the end of the LRU list', function() {
+				putKey( '1' );
+				putKey( '2' );
+				putKey( '3' );
+				expectLruList( [ '1', '2', '3' ] );
+				
+				removeKey( '3' );
+				expectLruList( [ '1', '2' ] );
+			} );
+			
+			
+			it( 'manually removing an entry should remove the entry properly from the middle of the LRU list', function() {
+				putKey( '1' );
+				putKey( '2' );
+				putKey( '3' );
+				expectLruList( [ '1', '2', '3' ] );
+				
+				removeKey( '2' );
+				expectLruList( [ '1', '3' ] );
+			} );
+			
+			
+			it( 'manually removing all entries should remove them from the LRU list', function() {
+				putKey( '1' );
+				putKey( '2' );
+				putKey( '3' );
+				expectLruList( [ '1', '2', '3' ] );
+				
+				removeKey( '2' );
+				expectLruList( [ '1', '3' ] );
+				
+				removeKey( '1' );
+				expectLruList( [ '3' ] );
+				
+				removeKey( '3' );
+				expectLruList( [] );
+			} );
+			
+		} );
+		
+		
 		describe( 'maxAge handling', function() {
 			
 			beforeEach( function() {
