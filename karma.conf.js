@@ -2,21 +2,23 @@
 // Generated on Sun Sep 28 2014 13:26:33 GMT-0400 (Eastern Daylight Time)
 
 module.exports = function(config) {
-	config.set({
+	config.set( {
 
 		// base path, that will be used to resolve files and exclude
 		basePath: '',
 
 
 		// frameworks to use
-		frameworks: ['jasmine'],
+		frameworks: [ 'jasmine' ],
 
 
 		// list of files / patterns to load in the browser
 		files: [
 			'bower_components/angular/angular.js',
 			'bower_components/angular-mocks/angular-mocks.js',
-			'src/**/*.js',
+			'src/PromiseCache.js',
+			'src/CacheEntry.js',
+			'src/LruList.js',
 			'test/**/*.js'
 		],
 
@@ -29,7 +31,7 @@ module.exports = function(config) {
 
 		// test results reporter to use
 		// possible values: 'dots', 'progress', 'junit', 'growl', 'coverage'
-		reporters: ['progress'],
+		reporters: [ 'progress' ],
 
 
 		// web server port
@@ -57,7 +59,7 @@ module.exports = function(config) {
 		// - Safari (only Mac; has to be installed with `npm install karma-safari-launcher`)
 		// - PhantomJS
 		// - IE (only Windows; has to be installed with `npm install karma-ie-launcher`)
-		browsers: ['PhantomJS'],
+		browsers: [ 'PhantomJS' ],
 
 
 		// If browser does not capture in given timeout [ms], kill it
@@ -67,5 +69,6 @@ module.exports = function(config) {
 		// Continuous Integration mode
 		// if true, it capture browsers, run tests and exit
 		singleRun: false
-	});
+		
+	} );
 };

@@ -192,12 +192,12 @@ describe( 'PromiseCache', function() {
 			}
 			
 			/*
-			 * @param {String[]} keys The keys to expect in the cache.
+			 * @param {String[]} keys The keys to expect in the cache, in order of LRU to MRU.
 			 */
 			function expectLruList( keys ) {
 				expect( promiseCache.getSize() ).toBe( keys.length );
 				
-				var lruList = promiseCache.getLruList();
+				var lruList = ( promiseCache.lruList ) ? promiseCache.lruList.getLruList() : [];  // lruList may not exist when there are no entries
 				expect( getKeys( lruList ) ).toEqual( keys );
 				
 				expectLruToBe( keys[ 0 ] || null );
@@ -216,22 +216,24 @@ describe( 'PromiseCache', function() {
 			
 			function expectMruToBe( key ) {
 				if( key === null ) {
-					expect( promiseCache.mru ).toBe( null );
+					expect( promiseCache.lruList ).toBe( null );
 				} else {
-					expect( promiseCache.mru.getKey() ).toBe( key );
+					expect( promiseCache.lruList.mru.getKey() ).toBe( key );
 				}
 			}
 			
 			function expectLruToBe( key ) {
 				if( key === null ) {
-					expect( promiseCache.lru ).toBe( null );
+					expect( promiseCache.lruList ).toBe( null );
 				} else {
-					expect( promiseCache.lru.getKey() ).toBe( key );
+					expect( promiseCache.lruList.lru.getKey() ).toBe( key );
 				}
 			}
 			
 			
 			it( 'should remove entries on a least-recently-used (LRU) basis as entries are added', function() {
+				expectLruList( [] );
+				
 				putKey( '1' );
 				putKey( '2' );
 				putKey( '3' );
@@ -242,6 +244,14 @@ describe( 'PromiseCache', function() {
 				
 				putKey( '5' );
 				expectLruList( [ '3', '4', '5' ] );
+			} );
+			
+			
+			it( 'should remove entries on a least-recently-used (LRU) basis as entries are added (bigger test)', function() {
+				for( var i = 1; i <= 50; i++ ) {
+					putKey( i + '' );
+				}
+				expectLruList( [ '48', '49', '50' ] );
 			} );
 			
 			
@@ -314,6 +324,15 @@ describe( 'PromiseCache', function() {
 				expectLruList( [ '3' ] );
 				
 				removeKey( '3' );
+				expectLruList( [] );
+			} );
+			
+			
+			it( 'should handle adding and removing one item from the cache', function() {
+				putKey( '1' );
+				expectLruList( [ '1' ] );
+				
+				removeKey( '1' );
 				expectLruList( [] );
 			} );
 			

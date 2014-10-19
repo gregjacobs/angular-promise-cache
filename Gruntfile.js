@@ -40,7 +40,7 @@ module.exports = function( grunt ) {
 					banner : banner,
 					nonull : true
 				},
-				src : [ 'src/PromiseCache.js' ],
+				src : [ 'src/PromiseCache.js', 'src/CacheEntry.js', 'src/LruList.js' ],
 				dest : 'dist/PromiseCache.js',
 			},
 		},
