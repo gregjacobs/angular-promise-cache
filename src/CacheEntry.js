@@ -80,12 +80,17 @@ angular.module( 'angular-promise-cache' ).factory( 'PromiseCache.CacheEntry', fu
 		
 		
 		/**
-		 * Returns the time that the cache entry was added, in milliseconds from the unix epoch.
+		 * Determines if the CacheEntry has expired, based on the current time, and the `maxAge` given.
 		 * 
-		 * @return {Number}
+		 * @param {Number} maxAge The maximum age for the CacheEntry to live, in milliseconds. If `null` is
+		 *   passed in (for "no max age"), the method returns false.
+		 * @return {Boolean} `true` if the CacheEntry has expired, `false` otherwise.
 		 */
-		getEntryTime : function() {
-			return this.entryTime;
+		isExpired : function( maxAge ) {
+			if( maxAge === null ) return false;
+			
+			var now = (new Date()).getTime();
+			return ( now > this.entryTime + maxAge );
 		}
 		
 	} );

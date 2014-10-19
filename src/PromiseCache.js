@@ -148,7 +148,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 			var cacheEntry = this.cache[ key ],
 			    promise;
 			
-			if( cacheEntry && !this.isExpired( cacheEntry ) ) {
+			if( cacheEntry && !cacheEntry.isExpired( this.maxAge ) ) {
 				promise = cacheEntry.getPromise();
 				if( this.lruList ) this.lruList.touch( cacheEntry );
 			} else {
@@ -222,7 +222,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 			if( !this.cache ) return false;
 			
 			var cacheEntry = this.cache[ key ];
-			return ( !!cacheEntry && !this.isExpired( cacheEntry ) );
+			return ( !!cacheEntry && !cacheEntry.isExpired( this.maxAge ) );
 		},
 		
 		
@@ -237,14 +237,25 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 			
 			var cacheEntry = cache[ key ];
 			if( cacheEntry ) {
-				if( this.size === 1 ) {  // removing the last entry, simply clear out the cache (set to `null`), and stop the pruning interval
-					this.clear();
-					
-				} else {
-					this.size--;
-					if( this.lruList ) this.lruList.remove( cacheEntry );
-					delete cache[ key ];
-				}
+				this.removeEntry( cacheEntry );
+			}
+		},
+		
+		
+		/**
+		 * Removes the given `cacheEntry`.
+		 * 
+		 * @private
+		 * @param {PromiseCache.CacheEntry} cacheEntry
+		 */
+		removeEntry : function( cacheEntry ) {
+			if( this.size === 1 ) {  // removing the last entry, simply clear out the cache (set to `null`), and stop the pruning interval
+				this.clear();
+				
+			} else {
+				this.size--;
+				if( this.lruList ) this.lruList.remove( cacheEntry );
+				delete this.cache[ cacheEntry.getKey() ];
 			}
 		},
 		
@@ -273,22 +284,6 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		
 		
 		/**
-		 * Determines if a cache entry is expired, based on the `cacheEntry`'s insertion time, and the {@link #maxAge} config.
-		 * 
-		 * @private
-		 * @param {PromiseCache.CacheEntry} cacheEntry
-		 * @return {Boolean} `true` if the cache entry is expired, `false` otherwise.
-		 */
-		isExpired : function( cacheEntry ) {
-			var maxAge = this.maxAge;
-			if( maxAge == null ) return false;  // no `maxAge` in use, then the cacheEntry can't be expired
-			
-			var now = (new Date()).getTime();
-			return ( now > cacheEntry.getEntryTime() + maxAge );
-		},
-		
-		
-		/**
 		 * Clears the cache of all entries.
 		 */
 		clear : function() {
@@ -311,14 +306,16 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		 * a long time.
 		 */
 		prune : function() {
-			var cache = this.cache;
+			var cache = this.cache,
+			    maxAge = this.maxAge;
 			
 			if( !cache ) return;
-			if( this.maxAge == null ) return;  // no need to loop through the cache when there is no `maxAge` in use. In this case, entries can't expire.
+			if( maxAge == null ) return;  // no need to loop through the cache when there is no `maxAge` in use. In this case, entries can't expire.
 			
+			var cacheEntry;
 			for( var key in cache ) {
-				if( cache.hasOwnProperty( key ) && this.isExpired( cache[ key ] ) ) {
-					this.remove( key );
+				if( cache.hasOwnProperty( key ) && ( cacheEntry = cache[ key ] ).isExpired( maxAge ) ) {
+					this.removeEntry( cacheEntry );
 				}
 			}
 		},
