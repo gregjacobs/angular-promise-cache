@@ -16,10 +16,12 @@ describe( 'PromiseCache', function() {
 		$rootScope = _$rootScope_;
 		PromiseCache = _PromiseCache_;
 		
-		promiseCache = new PromiseCache();  // note: may be overridden in certain tests
-		
 		deferreds = [];
-		setterFn = jasmine.createSpy( 'setterFn' ).andCallFake( createDeferred );		
+		setterFn = jasmine.createSpy( 'setterFn' ).andCallFake( createDeferred );
+		
+		// For tests that involve the pruning interval
+		spyOn( window, 'setInterval' ).andCallThrough();
+		spyOn( window, 'clearInterval' ).andCallThrough();
 	} ) );
 	
 	
@@ -50,6 +52,12 @@ describe( 'PromiseCache', function() {
 	
 	
 	describe( 'get()', function() {
+		var promiseCache;
+		
+		beforeEach( function() {
+			promiseCache = new PromiseCache();
+		} );
+		
 		
 		it( 'should throw an error if the `setter` argument is not provided', function() {
 			expect( function() {
@@ -197,7 +205,7 @@ describe( 'PromiseCache', function() {
 			function expectLruList( keys ) {
 				expect( promiseCache.getSize() ).toBe( keys.length );
 				
-				var lruList = ( promiseCache.lruList ) ? promiseCache.lruList.getLruList() : [];  // lruList may not exist when there are no entries
+				var lruList = ( promiseCache.lruList ) ? promiseCache.lruList.getLruEntries() : [];  // lruList may not exist when there are no entries
 				expect( getKeys( lruList ) ).toEqual( keys );
 				
 				expectLruToBe( keys[ 0 ] || null );
@@ -381,6 +389,12 @@ describe( 'PromiseCache', function() {
 	
 	
 	describe( 'getSize()', function() {
+		var promiseCache;
+		
+		beforeEach( function() {
+			promiseCache = new PromiseCache();
+		} );
+		
 		
 		it( 'should return the number of entries in the cache at any given time', function() {
 			expect( promiseCache.getSize() ).toBe( 0 );
@@ -415,11 +429,15 @@ describe( 'PromiseCache', function() {
 	
 	
 	describe( 'has()', function() {
+		var promiseCache;
 		
 		beforeEach( function() {
 			// Need to spy on the the Date prototype to implement the `maxAge` tests
 			spyOn( Date.prototype, 'getTime' ).andReturn( 0 );
+			
+			promiseCache = new PromiseCache();
 		} );
+		
 		
 		it( 'should return `false` when no entries have yet been added to the cache', function() {
 			expect( promiseCache.has( '1' ) ).toBe( false );
@@ -456,6 +474,12 @@ describe( 'PromiseCache', function() {
 	
 	
 	describe( 'remove()', function() {
+		var promiseCache;
+		
+		beforeEach( function() {
+			promiseCache = new PromiseCache();
+		} );
+		
 		
 		it( 'should not throw an error if called when there are no cache entries', function() {
 			expect( function() {
@@ -494,6 +518,12 @@ describe( 'PromiseCache', function() {
 	
 	
 	describe( 'clear()', function() {
+		var promiseCache;
+		
+		beforeEach( function() {
+			promiseCache = new PromiseCache();
+		} );
+		
 		
 		it( 'should clear the cache, forcing new calls to get() to create new promises', function() {
 			var promise0 = promiseCache.get( '1', setterFn );
@@ -520,10 +550,29 @@ describe( 'PromiseCache', function() {
 			expect( promiseCache.getSize() ).toBe( 0 );
 		} );
 		
+		
+		it( 'should stop the pruningInterval if it is running', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000 } );  // 1 second
+			promiseCache.get( '1', setterFn );
+			promiseCache.get( '2', setterFn );
+			
+			// Check initial conditions
+			var pruningIntervalId = promiseCache.pruningIntervalId;
+			expect( pruningIntervalId ).toBeTruthy();
+			expect( window.setInterval.calls.length ).toBe( 1 );
+			expect( window.clearInterval ).not.toHaveBeenCalled();
+			
+			promiseCache.clear();
+			expect( window.setInterval.calls.length ).toBe( 1 );  // no more calls to setInterval()
+			expect( window.clearInterval ).toHaveBeenCalledWith( pruningIntervalId );
+			expect( promiseCache.pruningIntervalId ).toBe( null );
+		} );
+		
 	} );
 	
 	
 	describe( 'prune()', function() {
+		var promiseCache;
 		
 		beforeEach( function() {
 			// Need to spy on the Date object to test this functionality
@@ -583,9 +632,6 @@ describe( 'PromiseCache', function() {
 		beforeEach( function() {
 			jasmine.Clock.useMock();
 			
-			spyOn( window, 'setInterval' ).andCallThrough();
-			spyOn( window, 'clearInterval' ).andCallThrough();
-			
 			spyOn( Date.prototype, 'getTime' ).andReturn( 0 );  // for testing the pruning on the maxAge
 		} );
 		
@@ -628,6 +674,15 @@ describe( 'PromiseCache', function() {
 			promiseCache.get( '1', setterFn );
 			
 			expect( window.setInterval ).toHaveBeenCalled();
+		} );
+		
+		
+		it( 'should only call setInterval() to start the pruning interval once, even if multiple items are added', function() {
+			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1', setterFn );
+			promiseCache.get( '2', setterFn );
+			
+			expect( window.setInterval.calls.length ).toBe( 1 );
 		} );
 		
 		
@@ -681,6 +736,30 @@ describe( 'PromiseCache', function() {
 			jasmine.Clock.tick( 1000 );
 			Date.prototype.getTime.andReturn( 1000 );
 			expect( promiseCache.has( '1' ) ).toBe( false );
+		} );
+		
+	} );
+	
+	
+	describe( 'destroy()', function() {
+		var promiseCache;
+		
+		beforeEach( function() {
+			promiseCache = new PromiseCache( { maxAge: 1000 } );
+		} );
+		
+		
+		it( 'should clear the cache, and stop the pruning interval if it\'s running', function() {
+			promiseCache.get( '1', setterFn );
+			promiseCache.get( '2', setterFn );
+			
+			expect( promiseCache.getSize() ).toBe( 2 );             // initial condition
+			expect( window.setInterval ).toHaveBeenCalled();        // initial condition
+			expect( window.clearInterval ).not.toHaveBeenCalled();  // initial condition
+			
+			promiseCache.destroy();
+			expect( promiseCache.getSize() ).toBe( 0 );
+			expect( window.clearInterval.calls.length ).toBe( 1 );
 		} );
 		
 	} );

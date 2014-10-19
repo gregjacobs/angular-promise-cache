@@ -116,7 +116,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		pruningIntervalId : null,
 		
 		/**
-		 * @private
+		 * @protected
 		 * @property {PromiseCache.LruList} lruList
 		 * 
 		 * The LruList instance which maintains a doubly linked list to implement the LRU scheme.
@@ -182,7 +182,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 				
 				// If the addition exceeds the maxSize, removed the least recently used entry
 				if( this.maxSize !== null && this.size > this.maxSize ) {
-					this.remove( this.lruList.getLru().getKey() );
+					this.removeEntry( this.lruList.getLru() );
 				}
 			} else {
 				throw new Error( '`setter` function must return a Promise object' );
@@ -278,7 +278,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 			if( !cache ) return;
 			
 			if( cache[ key ] === cacheEntry ) {
-				this.remove( key );
+				this.removeEntry( cacheEntry );
 			}
 		},
 		
@@ -364,8 +364,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		 * Destroys the PromiseCache by removing the cache references, and removing the prune interval.
 		 */
 		destroy : function() {
-			this.stopPruningInterval();
-			this.cache = null;
+			this.clear();
 		}
 		
 	} );

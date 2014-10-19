@@ -102,7 +102,7 @@ angular.module( 'angular-promise-cache' ).factory( 'PromiseCache.LruList', funct
 		 * @return {PromiseCache.CacheEntry[]} Returns the cache entries in least recently used (LRU) order. That is,
 		 *   the LRU entry is the beginning of the array, and the most recently used (MRU) entry is the end.
 		 */
-		getLruList : function() {
+		getLruEntries : function() {
 			var lruEntry = this.lru,
 			    result = [];
 			
