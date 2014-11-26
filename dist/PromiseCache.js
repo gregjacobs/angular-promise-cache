@@ -1,6 +1,6 @@
 /*!
  * angular-promise-cache
- * 0.1.0
+ * 0.2.0
  *
  * Copyright(c) 2014 Gregory Jacobs <greg@greg-jacobs.com>
  * MIT
@@ -21,11 +21,30 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 	 * 2) While that request is in progress, another part of the application may also call for the data of User #1.
 	 * 3) Instead of a 2nd network request being made, the 2nd call is "joined" to the first network request (the 1st 
 	 *    request's Promise is returned to the 2nd caller), and both parts of the application receive their data when 
-	 *    the lone network request for User #1 completes.
+	 *    the single network request for User #1 completes.
 	 *    
 	 * This implementation is used as opposed to caching just the server-received data. Since the data itself can only
 	 * be cached once it has been returned, this implementation optimizes network requests by caching the Promise itself,
 	 * making sure only one network request has been made.
+	 * 
+	 * Note that network requests are just an example and are not the only application for this cache. Any asynchronous 
+	 * promise-based operation may be cached.
+	 * 
+	 * 
+	 * ## Options
+	 * 
+	 * The cache may be configured with a few options:
+	 * 
+	 * - {@link #factory}: The factory function used to create the cache entries when they do not yet exist in the cache.
+	 *   This may alternatively be provided as the second argument passed to {@link #get}.
+	 * - {@link #context}: The context object (`this` reference) to run the {@link #factory} function in. Useful for OOP
+	 *   implementations.
+	 * - {@link #maxSize}: The maximum number of entries to allow in the cache. Entries are removed on a LRU (least
+	 *   recently used) basis when the size has been exceeded.
+	 * - {@link #maxAge}: A number, in milliseconds, to allow cache entries to exist for. After this time has elapsed,
+	 *   cache entries are considered stale and will not be returned. These entries will also be automatically removed
+	 *   when the {@link #prune} task executes.
+	 * - {@link #pruneInterval}: How often the {@link #prune} task should execute to remove old entries.
 	 * 
 	 * 
 	 * ## Promise Rejection
@@ -37,13 +56,36 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 	 * ## Destroying the Cache
 	 * 
 	 * If the cache is no longer to be in use, the {@link #destroy} method must be executed to clear up references and 
-	 * remove the {@link #maxAge} {@link #pruneInterval prune} interval.
+	 * stop the {@link #maxAge} {@link #pruneInterval pruning} interval.
 	 * 
 	 * Most often, a PromiseCache will be used within a singleton service that lasts the lifetime of an app and therefore 
 	 * will not need to be cleaned up, but there are cases for manually destroying a PromiseCache.
 	 * 
 	 * 
-	 * ## Example
+	 * ## Examples
+	 * 
+	 * ### Using Factory Function Passed to the Constructor to Generate Cache Entries
+	 * 
+	 * ```
+	 * angular.module( 'myModule' ).factory( 'UserService', [ '$http', 'PromiseCache', function( $http, PromiseCache ) {
+	 *     var userPromiseCache = new PromiseCache( {
+	 *         factory : function( userId ) {
+	 *             return $http.get( '/users/' + userId );
+	 *         }
+	 *     } );
+	 *     
+	 *     return {
+	 *         loadUser : function( userId ) {
+	 *             return userPromiseCache.get( userId, [ userId ] );  // 1st arg is the cache key
+	 *                                                                 // 2nd arg is an array of the arguments to pass to the 
+	 *                                                                 // `factory` function if the cache entry does not yet exist
+	 *         }
+	 *     };
+	 * } ] );
+	 * ```
+	 * 
+	 * 
+	 * ### Using Inline Factory Function Passed to {@link #get} to Generate Cache Entries
 	 * 
 	 * ```
 	 * angular.module( 'myModule' ).factory( 'UserService', [ '$http', 'PromiseCache', function( $http, PromiseCache ) {
@@ -59,6 +101,29 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 	 * } ] );
 	 * ```
 	 * 
+	 * 
+	 * ### Expiring Entries After 60 Seconds, with a Maximum Cache Size of 10 Entries
+	 * 
+	 * ```
+	 * angular.module( 'myModule' ).factory( 'UserService', [ '$http', 'PromiseCache', function( $http, PromiseCache ) {
+	 *     var userPromiseCache = new PromiseCache( {
+	 *         factory : function( userId ) {
+	 *             return $http.get( '/users/' + userId );
+	 *         },
+	 *         maxAge: 60 * 1000,  // 60 sec
+	 *         maxSize: 10
+	 *     } );
+	 *     
+	 *     return {
+	 *         loadUser : function( userId ) {
+	 *             return userPromiseCache.get( userId, [ userId ] );  // 1st arg is the cache key
+	 *                                                                 // 2nd arg is an array of the arguments to pass to the 
+	 *                                                                 // `factory` function if the cache entry does not yet exist
+	 *         }
+	 *     };
+	 * } ] );
+	 * ```
+	 * 
 	 * @constructor
 	 * @param {Object} [cfg] Any of the configuration options for this class, specified in an Object (map).
 	 */
@@ -68,6 +133,22 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 	
 	
 	angular.extend( PromiseCache.prototype, {
+		
+		/**
+		 * @cfg {Function} factory
+		 * 
+		 * The factory function used to create the cache entries when they do not yet exist in the cache. This function 
+		 * *must* return an Angular promise object, or an error will be thrown. See class description for examples.
+		 * 
+		 * If this config is not provided, a factory function must be passed as the second argument to {@link #get}.
+		 */
+		
+		/**
+		 * @cfg {Object} context
+		 * 
+		 * The context object to run the {@link #factory} function in. Defaults to the `window` object.
+		 */
+		context : null,
 		
 		/**
 		 * @cfg {Number} maxSize
@@ -136,20 +217,26 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		/**
 		 * Retrieves a Promise from the cache by the given `key`, adding it to the cache if `key` does not yet exist.
 		 * 
-		 * If `key` does not exist in the cache, the Promise is created using the `setter` function. The `setter`
+		 * If `key` does not exist in the cache, the Promise is created using the {@link #factory} function. The {@link #factory}
 		 * function *must* return a Promise object, or an error will be thrown. 
 		 * 
-		 * See class description for more details on usage.
+		 * See class description for more example usage.
 		 * 
-		 * @param {String} key The key retrieve from the cache. If the key does not yet exist, the `setter` function
-		 *   will be called, and stored under this key.
-		 * @param {Function} setter The function to create the Promise in the cache.
-		 * @return {Q.Promise}
+		 * @param {String} key The key retrieve from the cache. If the key does not yet exist, the {@link #factory} function
+		 *   will be called, and its returned promise will be stored under this key.
+		 * @param {Array/Function} factoryArgsOrFactoryFn An array of arguments to pass to the {@link #factory} function
+		 *   that was configured with the constructor, or a custom factory function to create the promise in the cache
+		 *   for this particular call to `get()`.
+		 *   
+		 *   If passing a custom factory function here, it follows the same rules as the constructor-configured {@link #factory} 
+		 *   function in that it must return an Angular promise object. 
+		 *   
+		 *   Note: if no {@link #factory} was provided to the constructor, then a factory function is required here.
+		 * @return {Q.Promise} The Promise object that was previously cached under `key`, or the newly-created Promise which
+		 *   was generated from the {@link #factory}.
 		 */
-		get : function( key, setter ) {
-			if( typeof setter !== 'function' ) {
-				throw new Error( '`setter` arg required, and must be a function' );
-			}
+		get : function( key, factoryArgsOrFactoryFn ) {
+			var factoryFn = this.resolveFactoryFn( factoryArgsOrFactoryFn );
 			
 			if( !this.cache ) this.cache = {};  // lazily instantiate the cache map
 			if( !this.lruList && this.maxSize !== null ) this.lruList = new LruList();
@@ -161,10 +248,39 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 				promise = cacheEntry.getPromise();
 				if( this.lruList ) this.lruList.touch( cacheEntry );
 			} else {
-				promise = this.addEntry( key, setter );  // not yet in the cache (or the cached entry is expired), add the new entry
+				promise = this.addEntry( key, factoryFn );  // not yet in the cache (or the cached entry is expired), add the new entry
 			}
 			
 			return promise;
+		},
+		
+		
+		/**
+		 * Resolves the factory function based on the 2nd argument passed to {@link #get} (`factoryArgsOrFactoryFn`).
+		 * 
+		 * - If a factory function was passed directly to {@link #get}, this function will be returned.
+		 * - If a factory function was not passed to {@link #get}, then it will default to the {@link factory} config
+		 *   passed to the constructor. In this case, an optional array of arguments may have been passed, in which
+		 *   a function with these arguments partially applied is returned. The {@link #factory} function will also be
+		 *   called with {@link #context} as its context object.
+		 *   
+		 * If the factory function could not be resolved (due to it not being passed directly, and no {@link #factory}
+		 * being configured on the constructor), then an error will be thrown.
+		 *   
+		 * @private
+		 * @param {Array/Function} factoryArgsOrFactoryFn The `factoryArgsOrFactoryFn` argument passed to {@link #get}.
+		 * @return {Function} The factory function.
+		 */
+		resolveFactoryFn : function( factoryArgsOrFactoryFn ) {
+			if( typeof factoryArgsOrFactoryFn === 'function' ) {
+				return factoryArgsOrFactoryFn;
+				
+			} else {
+				if( !this.factory ) throw new Error( '`factory` function required as 2nd arg to get(), since no `factory` provided to PromiseCache constructor' );
+				
+				var factoryArgs = factoryArgsOrFactoryFn;  // for clarity
+				return angular.bind.apply( angular, [ this.context, this.factory ].concat( factoryArgs || [] ) );
+			}
 		},
 		
 		
@@ -174,15 +290,15 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		 * 
 		 * @private
 		 * @param {String} key The key store the promise under.
-		 * @param {Function} setter The function to create the Promise in the cache.
-		 * @return {Q.promise} The promise returned from the `setter` function.
+		 * @param {Function} factoryFn The function to execute to create the Promise in the cache.
+		 * @return {Q.promise} The promise returned from the `factoryFn` function.
 		 */
-		addEntry : function( key, setter ) {
+		addEntry : function( key, factoryFn ) {
 			var me = this,  // for closure
-			    promise = setter(),
+			    promise = factoryFn(),
 			    cacheEntry;
 			
-			if( promise && typeof promise.then === 'function' ) {  // a little duck typing to determine if the object returned from `setter()` is a promise
+			if( promise && typeof promise.then === 'function' ) {  // a little duck typing to determine if the object returned from `factoryFn()` is a promise
 				cacheEntry = this.cache[ key ] = new CacheEntry( key, promise );
 				if( this.lruList ) this.lruList.pushMru( cacheEntry );
 				this.size++;
@@ -194,11 +310,11 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 					this.removeEntry( this.lruList.getLru() );
 				}
 			} else {
-				throw new Error( '`setter` function must return a Promise object' );
+				throw new Error( '`factory` function must return a Promise object' );
 			}
 			
 			// If the deferred is rejected, remove it from the cache so that subsequent "get()'s" 
-			// trigger a new request to the `setter`
+			// trigger a new request to the `factoryFn`
 			promise.then( null, angular.bind( this, this.removeIfEntry, key, cacheEntry ) );  // use bind() to not create a closure to the variables in this method
 			
 			return promise;
@@ -373,7 +489,7 @@ angular.module( 'angular-promise-cache', [] ).factory( 'PromiseCache', [ 'Promis
 		 * Destroys the PromiseCache by removing the cache references, and removing the prune interval.
 		 */
 		destroy : function() {
-			this.clear();
+			this.clear();  // note: also stops the pruning interval
 		}
 		
 	} );

@@ -55,59 +55,121 @@ describe( 'PromiseCache', function() {
 		var promiseCache;
 		
 		beforeEach( function() {
-			promiseCache = new PromiseCache();
+			promiseCache = new PromiseCache( { factory: factoryFn } );
 		} );
 		
 		
-		it( 'should throw an error if the `factoryFn` argument is not provided', function() {
+		it( 'should throw an error if the `factory` function argument is not provided, when no `factory` cfg is passed to the constructor', function() {
+			var noFactoryPromiseCache = new PromiseCache();
 			expect( function() {
+				noFactoryPromiseCache.get( '1' );
+			} ).toThrow( '`factory` function required as 2nd arg to get(), since no `factory` provided to PromiseCache constructor' );
+		} );
+		
+		
+		it( 'should throw an error if the `factory` function does not return a promise', function() {
+			expect( function() {
+				var promiseCache = new PromiseCache( { factory: function() { return; } } );
 				promiseCache.get( '1' );
-			} ).toThrow( '`factoryFn` arg required, and must be a function' );
+			} ).toThrow( '`factory` function must return a Promise object' );
+			
+			expect( function() {
+				var promiseCache = new PromiseCache( { factory: function() { return null; } } );
+				promiseCache.get( '1' );
+			} ).toThrow( '`factory` function must return a Promise object' );
+			
+			expect( function() {
+				var promiseCache = new PromiseCache( { factory: function() { return {}; } } );
+				promiseCache.get( '1' );
+			} ).toThrow( '`factory` function must return a Promise object' );
+			
+			expect( function() {
+				var noFactoryPromiseCache = new PromiseCache();
+				noFactoryPromiseCache.get( '1', function() { return; } );
+			} ).toThrow( '`factory` function must return a Promise object' );
+			
+			expect( function() {
+				var noFactoryPromiseCache = new PromiseCache();
+				noFactoryPromiseCache.get( '2', function() { return null; } );
+			} ).toThrow( '`factory` function must return a Promise object' );
+			
+			expect( function() {
+				var noFactoryPromiseCache = new PromiseCache();
+				noFactoryPromiseCache.get( '3', function() { return {}; } );  // returning anonymous object
+			} ).toThrow( '`factory` function must return a Promise object' );
 		} );
 		
 		
-		it( 'should throw an error if the `factoryFn` function does not return a promise', function() {
-			expect( function() {
-				promiseCache.get( '1', function() { return; } );
-			} ).toThrow( '`factoryFn` function must return a Promise object' );
+		it( 'should pass any args given to the 2nd param to the factory function when a factory function has been defined on the constructor', function() {
+			var factoryFn = jasmine.createSpy( 'factoryFn' ).andReturn( $q.when() ),
+			    promiseCache = new PromiseCache( { factory: factoryFn } );
 			
-			expect( function() {
-				promiseCache.get( '2', function() { return null; } );
-			} ).toThrow( '`factoryFn` function must return a Promise object' );
+			promiseCache.get( '1', [ 'a', 'b', 'c' ] );
 			
-			expect( function() {
-				promiseCache.get( '3', function() { return {}; } );  // returning anonymous object
-			} ).toThrow( '`factoryFn` function must return a Promise object' );
+			expect( factoryFn ).toHaveBeenCalledWith( 'a', 'b', 'c' );
+		} );
+		
+		
+		it( 'should pass no arguments to the factory function when a factory function has been defined on the constructor, and no args have been given to the second param of get()', function() {
+			var factoryFn = jasmine.createSpy( 'factoryFn' ).andReturn( $q.when() ),
+			    promiseCache = new PromiseCache( { factory: factoryFn } );
+			
+			promiseCache.get( '1' );
+			
+			expect( factoryFn ).toHaveBeenCalledWith();  // no args
+		} );
+		
+		
+		it( 'should call the factory function provided to the constructor with the correct context object', function() {
+			var contextObj = { a: 1, b: 2 },
+			    factoryFn = jasmine.createSpy( 'factoryFn' ).andReturn( $q.when() ),
+			    promiseCache = new PromiseCache( { factory: factoryFn, context: contextObj } );
+			
+			promiseCache.get( '1' );
+			
+			expect( factoryFn.calls[ 0 ].object ).toBe( contextObj );
+		} );
+		
+		
+		it( 'should prefer a factory function passed directly to the method over the factory function configured on the constructor', function() {
+			var ctorFactoryFn = jasmine.createSpy( 'ctorFactoryFn' ).andReturn( $q.when() ),
+			    methodFactoryFn = jasmine.createSpy( 'methodFactoryFn' ).andReturn( $q.when() ),
+			    promiseCache = new PromiseCache( { factory: ctorFactoryFn } );
+			
+			promiseCache.get( '1', methodFactoryFn );
+			
+			expect( ctorFactoryFn ).not.toHaveBeenCalled();
+			expect( methodFactoryFn ).toHaveBeenCalled();
 		} );
 		
 		
 		it( 'should return a cached promise object when one has been set into the cache', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
+			var promise0 = promiseCache.get( '1' );
 			expect( factoryFn.calls.length ).toBe( 1 );
 			
-			var promise1 = promiseCache.get( '1', factoryFn );
+			var promise1 = promiseCache.get( '1' );
 			expect( factoryFn.calls.length ).toBe( 1 );  // still should only be called one time
 			expect( promise0 ).toBe( promise1 );
 		} );
 		
 		
 		it( 'should return a cached promise object when one has been set into the cache, even after it has already been resolved', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
+			var promise0 = promiseCache.get( '1' );
 			expect( factoryFn.calls.length ).toBe( 1 );
 			
 			resolveDeferred( 0 );
 			
-			var promise1 = promiseCache.get( '1', factoryFn );
+			var promise1 = promiseCache.get( '1' );
 			expect( factoryFn.calls.length ).toBe( 1 );  // still should only be called one time
 			expect( promise0 ).toBe( promise1 );
 		} );
 		
 		
 		it( 'should return a new promise object when different keys are requested', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
+			var promise0 = promiseCache.get( '1' );
 			expect( factoryFn.calls.length ).toBe( 1 );
 			
-			var promise1 = promiseCache.get( '2', factoryFn );
+			var promise1 = promiseCache.get( '2' );
 			expect( factoryFn.calls.length ).toBe( 2 );
 			expect( promise0 ).not.toBe( promise1 );
 		} );
@@ -116,19 +178,19 @@ describe( 'PromiseCache', function() {
 		describe( 'removal when promise\'s deferred is rejected', function() { 
 			
 			it( 'should remove a rejected promise from the cache, so subsequent "gets" for the same key issue a new request', function() {
-				var promise0 = promiseCache.get( '1', factoryFn );
+				var promise0 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 1 );
 				
 				rejectDeferred( 0 );
 				
-				var promise1 = promiseCache.get( '1', factoryFn );
+				var promise1 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 2 );
 				expect( promise0 ).not.toBe( promise1 );
 			} );
 			
 			
 			it( 'should have no effect (not erroring) when a promise is rejected after the cache entry has been removed', function() {
-				var promise0 = promiseCache.get( '1', factoryFn );
+				var promise0 = promiseCache.get( '1' );
 				
 				promiseCache.remove( '1' );
 				
@@ -139,7 +201,7 @@ describe( 'PromiseCache', function() {
 			
 			
 			it( 'should *not* error when a promise is rejected after the cache has been cleared (i.e. from using the clear() method)', function() {
-				var promise0 = promiseCache.get( '1', factoryFn );
+				var promise0 = promiseCache.get( '1' );
 				
 				promiseCache.clear();
 				
@@ -151,11 +213,11 @@ describe( 'PromiseCache', function() {
 			
 			it( 'should *not* remove a newer cache entry under the same key name, when an older cache entry\'s promise is rejected', function() {
 				// First, add a promise and remove it
-				var promise0 = promiseCache.get( '1', factoryFn );
+				var promise0 = promiseCache.get( '1' );
 				promiseCache.remove( '1' );  // immediately remove
 				
 				// Second, add another promise under the same key name
-				var promise1 = promiseCache.get( '1', factoryFn );
+				var promise1 = promiseCache.get( '1' );
 				expect( promiseCache.has( '1' ) ).toBe( true );  // initial condition
 				
 				// Now, reject the first deferred. This should *not* remove the newer entry from the cache
@@ -170,7 +232,7 @@ describe( 'PromiseCache', function() {
 		describe( 'maxSize handling (LRU functionality)', function() {
 			
 			beforeEach( function() {
-				promiseCache = new PromiseCache( { maxSize: 3 } );
+				promiseCache = new PromiseCache( { factory: factoryFn, maxSize: 3 } );
 			} );
 			
 			
@@ -178,7 +240,7 @@ describe( 'PromiseCache', function() {
 			 * @param {String} key A key to put into the cache.
 			 */
 			function putKey( key ) {
-				promiseCache.get( key, factoryFn );
+				promiseCache.get( key );
 			}
 			
 			/*
@@ -189,7 +251,7 @@ describe( 'PromiseCache', function() {
 			function getKey( key ) {
 				if( !promiseCache.has( key ) ) throw new Error( "The key `" + key + "` was not in the cache" );
 				
-				promiseCache.get( key, factoryFn );
+				promiseCache.get( key );
 			}
 			
 			/*
@@ -353,32 +415,32 @@ describe( 'PromiseCache', function() {
 				// Need to spy on the Date object to test this functionality
 				spyOn( Date.prototype, 'getTime' ).andReturn( 0 );
 				
-				promiseCache = new PromiseCache( { maxAge: 1000 } );  // 1 second
+				promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000 } );  // 1 second
 			} );
 			
 			
 			it( 'should return the cache entry if the entry has not yet expired', function() {
-				var promise0 = promiseCache.get( '1', factoryFn );
+				var promise0 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 1 );
 				
 				Date.prototype.getTime.andReturn( 1000 );  // maxAge is inclusive, so should still receive the cached promise
-				var promise1 = promiseCache.get( '1', factoryFn );
+				var promise1 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 1 );
 				expect( promise0 ).toBe( promise1 );
 			} );
 			
 			
 			it( 'should call the `factoryFn` to create a new cache entry if the maxAge has elapsed', function() {
-				var promise0 = promiseCache.get( '1', factoryFn );
+				var promise0 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 1 );
 				
 				Date.prototype.getTime.andReturn( 1001 );
-				var promise1 = promiseCache.get( '1', factoryFn );
+				var promise1 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 2 );
 				expect( promise0 ).not.toBe( promise1 );
 				
 				// Test that subsequent calls get the 2nd promise (promise1)
-				var promise2 = promiseCache.get( '1', factoryFn );
+				var promise2 = promiseCache.get( '1' );
 				expect( factoryFn.calls.length ).toBe( 2 );
 				expect( promise1 ).toBe( promise2 );
 			} );
@@ -392,17 +454,17 @@ describe( 'PromiseCache', function() {
 		var promiseCache;
 		
 		beforeEach( function() {
-			promiseCache = new PromiseCache();
+			promiseCache = new PromiseCache( { factory: factoryFn } );
 		} );
 		
 		
 		it( 'should return the number of entries in the cache at any given time', function() {
 			expect( promiseCache.getSize() ).toBe( 0 );
 			
-			promiseCache.get( '1', factoryFn );
+			promiseCache.get( '1' );
 			expect( promiseCache.getSize() ).toBe( 1 );
 			
-			promiseCache.get( '2', factoryFn );
+			promiseCache.get( '2' );
 			expect( promiseCache.getSize() ).toBe( 2 );
 			
 			promiseCache.remove( '1' );
@@ -416,7 +478,7 @@ describe( 'PromiseCache', function() {
 		it( 'should return the proper value if the promise created by a `factoryFn` function is immediately rejected', function() {
 			var rejectedPromiseSetterFn = function() { return $q.reject(); };
 			
-			promiseCache.get( '1', factoryFn );
+			promiseCache.get( '1' );
 			expect( promiseCache.getSize() ).toBe( 1 );  // normal promise
 			
 			promiseCache.get( '2', rejectedPromiseSetterFn );
@@ -435,7 +497,7 @@ describe( 'PromiseCache', function() {
 			// Need to spy on the the Date prototype to implement the `maxAge` tests
 			spyOn( Date.prototype, 'getTime' ).andReturn( 0 );
 			
-			promiseCache = new PromiseCache();
+			promiseCache = new PromiseCache( { factory: factoryFn } );
 		} );
 		
 		
@@ -445,22 +507,22 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should return `true` when an entry does exist in the cache', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
+			var promise0 = promiseCache.get( '1' );
 			
 			expect( promiseCache.has( '1' ) ).toBe( true );
 		} );
 		
 		
 		it( 'should return `false` when an entry does not yet exist in the cache', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
+			var promise0 = promiseCache.get( '1' );
 			
 			expect( promiseCache.has( '2' ) ).toBe( false );
 		} );
 		
 		
 		it( 'should return `false` when an entry does exist in the cache, but it has expired from the `maxAge` setting', function() {
-			var promiseCache = new PromiseCache( { maxAge: 1000 } );
-			promiseCache.get( '1', factoryFn );
+			var promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000 } );
+			promiseCache.get( '1' );
 			expect( promiseCache.has( '1' ) ).toBe( true );  // initial condition
 			
 			Date.prototype.getTime.andReturn( 1000 );  // not yet expired, since maxAge is inclusive
@@ -477,7 +539,7 @@ describe( 'PromiseCache', function() {
 		var promiseCache;
 		
 		beforeEach( function() {
-			promiseCache = new PromiseCache();
+			promiseCache = new PromiseCache( { factory: factoryFn } );
 		} );
 		
 		
@@ -489,8 +551,8 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should remove an entry from the cache by its key', function() {
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			
 			promiseCache.remove( '1' );
 			expect( promiseCache.has( '1' ) ).toBe( false );
@@ -503,8 +565,8 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should remove the internal cache map when the last item has been removed', function() {
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			expect( angular.isObject( promiseCache.cache ) ).toBe( true );  // initial condition
 			
 			promiseCache.remove( '1' );
@@ -521,19 +583,19 @@ describe( 'PromiseCache', function() {
 		var promiseCache;
 		
 		beforeEach( function() {
-			promiseCache = new PromiseCache();
+			promiseCache = new PromiseCache( { factory: factoryFn } );
 		} );
 		
 		
 		it( 'should clear the cache, forcing new calls to get() to create new promises', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
-			var promise1 = promiseCache.get( '2', factoryFn );
+			var promise0 = promiseCache.get( '1' );
+			var promise1 = promiseCache.get( '2' );
 			expect( factoryFn.calls.length ).toBe( 2 );  // initial condition
 			
 			promiseCache.clear();
 			
-			var promise2 = promiseCache.get( '1', factoryFn );
-			var promise3 = promiseCache.get( '2', factoryFn );
+			var promise2 = promiseCache.get( '1' );
+			var promise3 = promiseCache.get( '2' );
 			expect( factoryFn.calls.length ).toBe( 4 );
 			expect( promise2 ).toBe( deferreds[ 2 ].promise );  // make sure that the promises
 			expect( promise3 ).toBe( deferreds[ 3 ].promise );  // are the correct objects
@@ -541,8 +603,8 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should properly maintain the `size` property when cleared', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
-			var promise1 = promiseCache.get( '2', factoryFn );
+			var promise0 = promiseCache.get( '1' );
+			var promise1 = promiseCache.get( '2' );
 			expect( promiseCache.getSize() ).toBe( 2 );  // initial condition
 			
 			promiseCache.clear();
@@ -552,9 +614,9 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should stop the pruningInterval if it is running', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000 } );  // 1 second
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000 } );  // 1 second
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			
 			// Check initial conditions
 			var pruningIntervalId = promiseCache.pruningIntervalId;
@@ -578,7 +640,7 @@ describe( 'PromiseCache', function() {
 			// Need to spy on the Date object to test this functionality
 			spyOn( Date.prototype, 'getTime' ).andReturn( 0 );
 			
-			promiseCache = new PromiseCache( { maxAge: 1000 } );  // 1 second
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000 } );  // 1 second
 		} );
 		
 		
@@ -590,14 +652,14 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should not remove any cache entries if none are expired', function() {
-			var promise0 = promiseCache.get( '1', factoryFn );
-			var promise1 = promiseCache.get( '2', factoryFn );
+			var promise0 = promiseCache.get( '1' );
+			var promise1 = promiseCache.get( '2' );
 			expect( factoryFn.calls.length ).toBe( 2 );  // initial condition
 			
 			Date.prototype.getTime.andReturn( 1000 );  // since maxAge values are inclusive, entries are not yet expired
 			
-			var promise2 = promiseCache.get( '1', factoryFn );
-			var promise3 = promiseCache.get( '2', factoryFn );
+			var promise2 = promiseCache.get( '1' );
+			var promise3 = promiseCache.get( '2' );
 			expect( factoryFn.calls.length ).toBe( 2 );
 			expect( promise0 ).toBe( promise2 );  // same cache entry
 			expect( promise1 ).toBe( promise3 );  // same cache entry
@@ -606,12 +668,12 @@ describe( 'PromiseCache', function() {
 		
 		it( 'should remove only the cache entries that have expired', function() {
 			Date.prototype.getTime.andReturn( 0 );  // just to be clear, adding at 0ms time
-			var promise0 = promiseCache.get( '1', factoryFn );
-			var promise1 = promiseCache.get( '2', factoryFn );
+			var promise0 = promiseCache.get( '1' );
+			var promise1 = promiseCache.get( '2' );
 			
 			Date.prototype.getTime.andReturn( 500 );
-			var promise2 = promiseCache.get( '3', factoryFn );
-			var promise3 = promiseCache.get( '4', factoryFn );
+			var promise2 = promiseCache.get( '3' );
+			var promise3 = promiseCache.get( '4' );
 			
 			Date.prototype.getTime.andReturn( 1001 );  // should expire entries '1' and '2'
 			promiseCache.prune();
@@ -647,65 +709,65 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should not start a prune interval for an empty cache', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: 1000 } );
 			
 			expect( window.setInterval ).not.toHaveBeenCalled();
 		} );
 		
 		
 		it( 'should not start a prune interval if no `maxAge` is set', function() {
-			promiseCache = new PromiseCache( { maxAge: null, pruneInterval: 1000 } );
-			promiseCache.get( '1', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: null, pruneInterval: 1000 } );
+			promiseCache.get( '1' );
 			
 			expect( window.setInterval ).not.toHaveBeenCalled();
 		} );
 		
 		
 		it( 'should not start a prune interval if `pruneInterval` is set to `null`', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: null } );
-			promiseCache.get( '1', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: null } );
+			promiseCache.get( '1' );
 			
 			expect( window.setInterval ).not.toHaveBeenCalled();
 		} );
 		
 		
 		it( 'should start a prune interval when there is a `maxAge` and a `pruneInterval`, and an item is added to the cache', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
-			promiseCache.get( '1', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1' );
 			
 			expect( window.setInterval ).toHaveBeenCalled();
 		} );
 		
 		
 		it( 'should only call setInterval() to start the pruning interval once, even if multiple items are added', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			
 			expect( window.setInterval.calls.length ).toBe( 1 );
 		} );
 		
 		
 		it( 'should stop the prune interval when all entries in the cache are removed', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			
 			expect( window.setInterval ).toHaveBeenCalled();
 			expect( window.clearInterval ).not.toHaveBeenCalled();
 			
-			promiseCache.remove( '1', factoryFn );
+			promiseCache.remove( '1' );
 			expect( window.clearInterval ).not.toHaveBeenCalled();
 			
-			promiseCache.remove( '2', factoryFn );
+			promiseCache.remove( '2' );
 			expect( window.clearInterval ).toHaveBeenCalled();
 		} );
 		
 		
 		it( 'should stop the prune interval when the PromiseCache is cleared', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			expect( window.setInterval ).toHaveBeenCalled();        // initial condition
 			expect( window.clearInterval ).not.toHaveBeenCalled();  // initial condition
 			
@@ -715,9 +777,9 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should stop the prune interval when the PromiseCache is destroyed', function() {
-			promiseCache = new PromiseCache( { maxAge: 1000, pruneInterval: 1000 } );
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000, pruneInterval: 1000 } );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			expect( window.setInterval ).toHaveBeenCalled();        // initial condition
 			expect( window.clearInterval ).not.toHaveBeenCalled();  // initial condition
 			
@@ -727,10 +789,10 @@ describe( 'PromiseCache', function() {
 		
 		
 		it( 'should prune the cache (removing old entries) on the interval', function() {
-			promiseCache = new PromiseCache( { maxAge: 500, pruneInterval: 1000 } );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 500, pruneInterval: 1000 } );
 			
 			Date.prototype.getTime.andReturn( 0 );  // just to be clear
-			promiseCache.get( '1', factoryFn );
+			promiseCache.get( '1' );
 			expect( promiseCache.has( '1' ) ).toBe( true );
 			
 			jasmine.Clock.tick( 1000 );
@@ -745,13 +807,13 @@ describe( 'PromiseCache', function() {
 		var promiseCache;
 		
 		beforeEach( function() {
-			promiseCache = new PromiseCache( { maxAge: 1000 } );
+			promiseCache = new PromiseCache( { factory: factoryFn, maxAge: 1000 } );
 		} );
 		
 		
 		it( 'should clear the cache, and stop the pruning interval if it\'s running', function() {
-			promiseCache.get( '1', factoryFn );
-			promiseCache.get( '2', factoryFn );
+			promiseCache.get( '1' );
+			promiseCache.get( '2' );
 			
 			expect( promiseCache.getSize() ).toBe( 2 );             // initial condition
 			expect( window.setInterval ).toHaveBeenCalled();        // initial condition
